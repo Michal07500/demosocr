@@ -9,6 +9,7 @@ import difflib
 import os
 import re
 import shutil
+import sys
 import unicodedata
 from dataclasses import dataclass, field
 
@@ -21,15 +22,49 @@ from pytesseract import Output
 LANG = "ces"
 RENDER_DPI = 200
 
-# Na Windows tesseract väčšinou nie je v PATH.
-if os.environ.get("TESSERACT_CMD"):
-    pytesseract.pytesseract.tesseract_cmd = os.environ["TESSERACT_CMD"]
-elif not shutil.which("tesseract"):
-    for _p in (r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-               r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"):
-        if os.path.exists(_p):
-            pytesseract.pytesseract.tesseract_cmd = _p
-            break
+# Tesseract: 1) priečinok "tesseract" vedľa aplikácie (.exe), 2) TESSERACT_CMD,
+# 3) PATH, 4) bežné miesto inštalácie na Windows.
+def _find_tesseract() -> str | None:
+    app_dir = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else
+                              os.path.dirname(os.path.abspath(__file__)))
+    bundled = [os.path.join(app_dir, "tesseract", "tesseract.exe")]
+    if getattr(sys, "_MEIPASS", None):
+        bundled.append(os.path.join(sys._MEIPASS, "tesseract", "tesseract.exe"))
+    for p in bundled:
+        if os.path.exists(p):
+            return p
+    if os.environ.get("TESSERACT_CMD"):
+        return os.environ["TESSERACT_CMD"]
+    if shutil.which("tesseract"):
+        return None
+    for p in (r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+              r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"):
+        if os.path.exists(p):
+            return p
+    return None
+
+
+_tess = _find_tesseract()
+if _tess:
+    pytesseract.pytesseract.tesseract_cmd = _tess
+    _tessdata = os.path.join(os.path.dirname(_tess), "tessdata")
+    if os.path.isdir(_tessdata):
+        os.environ.setdefault("TESSDATA_PREFIX", _tessdata)
+
+
+def check_tesseract() -> str | None:
+    """Vráti text chyby, ak OCR nie je pripravené, inak None."""
+    try:
+        langs = pytesseract.get_languages()
+    except Exception:  # noqa: BLE001 - tesseract chýba alebo nejde spustiť
+        return ("Nenašiel sa program Tesseract OCR.\n"
+                "Nainštalujte ho z https://github.com/UB-Mannheim/tesseract/wiki "
+                "(aj s jazykom Czech).")
+    missing = [l for l in ("ces", "eng") if l not in langs]
+    if missing:
+        return f"Tesseract nemá nainštalované jazyky: {', '.join(missing)}."
+    return None
+
 
 # Stĺpce tabuľky na liste (poradie zľava):
 # 0 Kód | 1 Název | 2 Manipulace | 3 Umístění | 4 Zóna | 5 Jakost

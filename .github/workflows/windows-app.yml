@@ -1,0 +1,72 @@
+name: Windows aplikácia
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python balíky
+        run: pip install -r requirements.txt pyinstaller pytest
+
+      - name: Tesseract OCR (+ čeština)
+        shell: pwsh
+        run: |
+          choco install tesseract -y --no-progress
+          $src = "C:\Program Files\Tesseract-OCR"
+          if (-not (Test-Path "$src\tesseract.exe")) { $src = "C:\Program Files (x86)\Tesseract-OCR" }
+          New-Item -ItemType Directory -Force tesseract | Out-Null
+          Copy-Item "$src\*" tesseract -Recurse
+          # rovnaké jazykové modely, na ktorých bolo čítanie odladené
+          Remove-Item tesseract\tessdata\*.traineddata -Exclude osd.traineddata
+          foreach ($l in "ces", "eng") {
+            Invoke-WebRequest "https://github.com/tesseract-ocr/tessdata_fast/raw/main/$l.traineddata" -OutFile "tesseract\tessdata\$l.traineddata"
+          }
+          # nepotrebné súbory (dokumentácia, nástroje na trénovanie)
+          Remove-Item tesseract\doc -Recurse -ErrorAction SilentlyContinue
+          Get-ChildItem tesseract -Filter *.exe | Where-Object { $_.Name -notin "tesseract.exe" } | Remove-Item
+          .\tesseract\tesseract.exe --list-langs
+
+      - name: Testy
+        run: |
+          python -m pytest -q
+          python -c "from kompletacia.ocr import check_tesseract as c; e = c(); assert e is None, e; print('OCR OK')"
+
+      - name: Zostavenie .exe
+        run: >
+          pyinstaller --noconfirm --windowed --name KompletacnyList
+          --icon assets/icon.ico
+          --add-data "kompletacia/fonts;kompletacia/fonts"
+          --add-data "assets;assets"
+          KompletacnyList.py
+
+      - name: Balík ZIP
+        shell: pwsh
+        run: |
+          Copy-Item tesseract dist\KompletacnyList\tesseract -Recurse
+          Copy-Item README.md dist\KompletacnyList\
+          Compress-Archive dist\KompletacnyList KompletacnyList-Windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KompletacnyList-Windows
+          path: dist/KompletacnyList
+
+      - name: Vydanie (len pri tagu v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: KompletacnyList-Windows.zip

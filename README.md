@@ -25,40 +25,45 @@ Sken sa číta cez OCR, preto program sám kontroluje, či čítanie sedí:
 Ak niečo nesedí, riadok je v PDF **žltý** s textom „⚠ skontroluj“ — vtedy treba hodnotu
 overiť na pôvodnom liste.
 
-## Inštalácia
+## Aplikácia pre Windows (odporúčané)
+
+Hotová aplikácia nič nepotrebuje inštalovať – OCR (Tesseract s češtinou) je pribalený.
+
+1. Na GitHube otvorte **Actions → „Windows aplikácia“** → posledný úspešný beh a stiahnite
+   artefakt **KompletacnyList-Windows** (alebo ZIP z **Releases**, ak je vydaná verzia).
+2. ZIP rozbaľte napr. do `C:\KompletacnyList` (celý priečinok, nie len .exe).
+3. Spustite **`KompletacnyList.exe`** (pre pohodlie: pravým tlačidlom → *Odoslať na → Pracovná
+   plocha (vytvoriť zástupcu)*).
+
+Ovládanie:
+
+1. **Vybrať naskenované PDF** – jedno alebo viac PDF zo skenera.
+2. **Vytvoriť kompletačný list** – priebeh ukazuje, ktorá strana sa číta.
+3. Výsledok sa zobrazí v okne (sporné riadky žlto) a PDF sa samo otvorí;
+   tlačidlá **Otvoriť PDF / Vytlačiť / Otvoriť priečinok**.
+
+PDF sa uloží vedľa skenu ako `<názov skenu>_kompletacia.pdf`. PDF sa dá pretiahnuť aj
+priamo na ikonu `KompletacnyList.exe` – spracuje sa hneď.
+
+Nová verzia aplikácie sa zostaví automaticky po každom pushi; vydanie do *Releases* vznikne
+po pridaní tagu, napr. `git tag v1.0 && git push --tags`.
+
+## Spustenie zo zdrojového kódu
 
 Potrebný je Python 3.10+ a OCR program **Tesseract** s češtinou.
 
-**Windows**
+**Windows:** Python z <https://www.python.org/downloads/> (*Add to PATH*), Tesseract z
+<https://github.com/UB-Mannheim/tesseract/wiki> (v *Additional language data* zaškrtnúť
+**Czech**), potom `pip install -r requirements.txt`.
 
-1. Python: <https://www.python.org/downloads/> (pri inštalácii zaškrtnúť *Add to PATH*).
-2. Tesseract: <https://github.com/UB-Mannheim/tesseract/wiki> – pri inštalácii v časti
-   *Additional language data* zaškrtnúť **Czech**. Program ho hľadá v
-   `C:\Program Files\Tesseract-OCR\`, inak nastavte premennú `TESSERACT_CMD`.
-3. V priečinku projektu: `pip install -r requirements.txt`
-
-**Linux (Ubuntu/Debian)**
+**Linux:** `sudo apt install tesseract-ocr tesseract-ocr-ces python3-tk` a
+`pip install -r requirements.txt`.
 
 ```bash
-sudo apt install tesseract-ocr tesseract-ocr-ces
-pip install -r requirements.txt
-```
-
-## Použitie
-
-```bash
-python -m kompletacia sken.pdf
-```
-
-Vznikne `sken_kompletacia.pdf` vedľa pôvodného súboru. Viac súborov naraz a vlastný názov
-výstupu:
-
-```bash
+python KompletacnyList.py                 # okno aplikácie
+python -m kompletacia sken.pdf            # bez okna, vznikne sken_kompletacia.pdf
 python -m kompletacia rano.pdf obed.pdf -o kompletacia_dnes.pdf
 ```
-
-Na Windows stačí PDF **pretiahnuť myšou na `kompletacia.bat`** – kompletačný list sa
-vytvorí a otvorí.
 
 Spracovanie trvá približne 5 sekúnd na stranu.
 
