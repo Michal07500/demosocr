@@ -85,3 +85,48 @@ def test_sample_pdf():
     for pl in lists:
         assert pl.items, pl.warnings
     assert all(not l.warnings for l in lines), [l.warnings for l in lines]
+
+
+def test_settings_roundtrip_and_cleanup(tmp_path):
+    from kompletacia import settings as cfg
+    path = str(tmp_path / "x" / "nastavenia.json")
+    assert cfg.load(path) == cfg.Settings()  # chýbajúci súbor -> predvolené
+    cfg.save(cfg.Settings(columns=["mnozstvo", "kod", "neznamy", "kod"], sort="nazov",
+                          lists_overview=False), path)
+    loaded = cfg.load(path)
+    assert loaded.columns == ["mnozstvo", "kod"]
+    assert loaded.sort == "nazov" and loaded.lists_overview is False
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("{pokazené")
+    assert cfg.load(path) == cfg.Settings()
+
+
+def test_sort_lines():
+    from kompletacia.aggregate import sort_lines
+    a = _pl(1, "VL1-1", "100", [Item("500", "Zeta", "", "D01-0-01", 1, 1),
+                                Item("40", "Alfa", "", "C02-0-01", 5, 1)])
+    b = _pl(2, "VL2-1", "200", [Item("1000", "Beta", "", "B09-0-01", 2, 1)])
+    lines = merge([a, b])
+    assert [l.kod for l in sort_lines(lines, "umiestnenie")] == ["1000", "40", "500"]
+    assert [l.kod for l in sort_lines(lines, "kod")] == ["40", "500", "1000"]
+    assert [l.nazov for l in sort_lines(lines, "nazov")] == ["Alfa", "Beta", "Zeta"]
+    assert [l.kod for l in sort_lines(lines, "mnozstvo")] == ["40", "1000", "500"]
+    assert [l.kod for l in sort_lines(lines, "poradie")] == ["500", "40", "1000"]
+
+
+def test_pdf_with_custom_columns(tmp_path):
+    from pypdf import PdfReader
+    from kompletacia.report import build_pdf
+    from kompletacia.settings import Settings
+    it = Item("307960", "DTDL U216", "Stáhnout", "C14-0-02", 3, 51)
+    it.warnings.append("umiestnenie 'C14'")
+    lines = merge([_pl(1, "VL1-1", "261073189", [it])])
+    out = str(tmp_path / "k.pdf")
+    build_pdf(out, lines, [], settings=Settings(columns=["mnozstvo", "umiestnenie", "kod"],
+                                                 lists_overview=False))
+    text = PdfReader(out).pages[0].extract_text()
+    assert "Vychystať" in text and "C14-0-02" in text and "307960" in text
+    assert "DTDL U216" not in text            # skrytý stĺpec Názov
+    assert "skontroluj" in text               # upozornenie ostane viditeľné
+    assert "Vychystávacie listy" not in text  # vypnutý prehľad
+    assert text.index("Vychystať") < text.index("Umiestnenie") < text.index("Kód")

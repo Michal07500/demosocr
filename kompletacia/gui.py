@@ -11,8 +11,10 @@ import tkinter as tk
 import traceback
 from tkinter import filedialog, messagebox, ttk
 
+from . import settings as cfg
+from .aggregate import sort_lines
 from .ocr import check_tesseract, fmt
-from .pipeline import Result, default_output, run
+from .pipeline import Result, default_output, rebuild, run
 
 APP_TITLE = "Kompletačný list"
 
@@ -54,8 +56,10 @@ class App(ttk.Frame):
         top = ttk.Frame(self)
         top.grid(row=0, column=0, sticky="ew")
         top.columnconfigure(1, weight=1)
-        ttk.Label(top, text=APP_TITLE, style="Title.TLabel").grid(row=0, column=0, columnspan=3,
+        ttk.Label(top, text=APP_TITLE, style="Title.TLabel").grid(row=0, column=0, columnspan=2,
                                                                     sticky="w", pady=(0, 8))
+        self.settings_btn = ttk.Button(top, text="⚙ Nastavenia", command=self.open_settings)
+        self.settings_btn.grid(row=0, column=2, sticky="ne")
         self.pick_btn = ttk.Button(top, text="1. Vybrať naskenované PDF …", command=self.pick,
                                    style="Big.TButton")
         self.pick_btn.grid(row=1, column=0, sticky="w")
@@ -148,7 +152,8 @@ class App(ttk.Frame):
             return
         self.busy = True
         self.result = None
-        for b in (self.pick_btn, self.run_btn, self.open_btn, self.print_btn, self.folder_btn):
+        for b in (self.pick_btn, self.run_btn, self.open_btn, self.print_btn, self.folder_btn,
+                  self.settings_btn):
             b.configure(state="disabled")
         self.tree.delete(*self.tree.get_children())
         self.out_var.set("")
@@ -178,7 +183,7 @@ class App(ttk.Frame):
             if err:
                 self.events.put(("error", err))
                 return
-            res = run(files, default_output(files[0]),
+            res = run(files, default_output(files[0]), settings=cfg.load(),
                       progress=lambda i, n, text: self.events.put(("progress", i, n, text)))
             self.events.put(("done", res))
         except Exception as e:  # noqa: BLE001 - chybu treba ukázať používateľovi
@@ -203,8 +208,8 @@ class App(ttk.Frame):
                     self.busy = False
                     self.progress.stop()
                     self.progress.configure(mode="determinate", value=0)
-                    self.pick_btn.configure(state="normal")
-                    self.run_btn.configure(state="normal")
+                    for b in (self.pick_btn, self.run_btn, self.settings_btn):
+                        b.configure(state="normal")
                     self.status_var.set("Chyba pri spracovaní.")
                     messagebox.showerror(APP_TITLE, f"Spracovanie zlyhalo:\n\n{ev[1]}")
         except queue.Empty:
@@ -217,18 +222,12 @@ class App(ttk.Frame):
         self.progress.stop()
         self.progress.configure(mode="determinate", maximum=1, value=1)
         self.time_var.set(f"{int(time.monotonic() - self.started_at)} s")
-        for b in (self.pick_btn, self.run_btn, self.open_btn, self.print_btn, self.folder_btn):
+        for b in (self.pick_btn, self.run_btn, self.open_btn, self.print_btn, self.folder_btn,
+                  self.settings_btn):
             b.configure(state="normal")
 
-        for l in res.lines:
-            km = " / ".join(fmt(l.km[u]) for u in l.umiestnenia if u in l.km)
-            rozpis = ", ".join(f"{fmt(a.mnozstvo)} ks {a.zakazka or a.doklad}" for a in l.allocations)
-            name = ("⚠ " if l.warnings else "") + l.nazov
-            self.tree.insert("", "end", tags=("warn",) if l.warnings else (), values=(
-                ", ".join(l.umiestnenia), l.kod, name, f"{fmt(l.mnozstvo)} ks", km, rozpis))
+        self.show_lines()
         total = sum(l.mnozstvo for l in res.lines)
-        self.tree.insert("", "end", tags=("total",),
-                         values=("", "", "SPOLU", f"{fmt(total)} ks", "", ""))
 
         msg = (f"Hotovo: {len(res.lists)} vychystávacích listov → {len(res.lines)} rôznych dosiek, "
                f"spolu {fmt(total)} ks.")
@@ -238,6 +237,40 @@ class App(ttk.Frame):
             msg += f"  ⚠ {res.warning_count}× treba skontrolovať (žlté riadky)."
         self.status_var.set(msg)
         self.out_var.set(res.output)
+        self.open_output("open")
+
+    def show_lines(self):
+        """Náhľad v okne - rovnaké poradie riadkov ako v PDF."""
+        self.tree.delete(*self.tree.get_children())
+        if not self.result:
+            return
+        lines = sort_lines(self.result.lines, cfg.load().sort)
+        for l in lines:
+            km = " / ".join(fmt(l.km[u]) for u in l.umiestnenia if u in l.km)
+            rozpis = ", ".join(f"{fmt(a.mnozstvo)} ks {a.zakazka or a.doklad}" for a in l.allocations)
+            name = ("⚠ " if l.warnings else "") + l.nazov
+            self.tree.insert("", "end", tags=("warn",) if l.warnings else (), values=(
+                ", ".join(l.umiestnenia), l.kod, name, f"{fmt(l.mnozstvo)} ks", km, rozpis))
+        total = sum(l.mnozstvo for l in lines)
+        self.tree.insert("", "end", tags=("total",),
+                         values=("", "", "SPOLU", f"{fmt(total)} ks", "", ""))
+
+    def open_settings(self):
+        if self.busy:
+            return
+        SettingsDialog(self.root, on_save=self.settings_saved)
+
+    def settings_saved(self):
+        if not self.result:
+            return
+        try:
+            rebuild(self.result, cfg.load())
+        except OSError as e:
+            messagebox.showerror(APP_TITLE, f"PDF sa nepodarilo uložiť:\n{e}")
+            return
+        self.show_lines()
+        self.out_var.set(self.result.output)
+        self.status_var.set("Kompletačný list bol upravený podľa nových nastavení.")
         self.open_output("open")
 
     def open_output(self, action: str):
@@ -250,6 +283,123 @@ class App(ttk.Frame):
     def open_folder(self):
         if self.result:
             open_file(os.path.dirname(os.path.abspath(self.result.output)))
+
+
+class SettingsDialog(tk.Toplevel):
+    """Poradie a výber stĺpcov, zoradenie riadkov, prehľad listov."""
+
+    def __init__(self, parent: tk.Tk, on_save):
+        super().__init__(parent)
+        self.on_save = on_save
+        self.title("Nastavenia kompletačného listu")
+        self.transient(parent)
+        self.resizable(False, False)
+        current = cfg.load()
+        # viditeľné stĺpce v ich poradí, za nimi skryté
+        self.order = current.columns + [c for c in cfg.COLUMNS if c not in current.columns]
+        self.visible = set(current.columns)
+
+        body = ttk.Frame(self, padding=14)
+        body.grid(sticky="nsew")
+        ttk.Label(body, text="Stĺpce v kompletačnom liste (zhora = zľava):",
+                  font=("Segoe UI", 10, "bold")).grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Label(body, text="Dvojklik = zobraziť / skryť stĺpec", foreground="#555").grid(
+            row=1, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        self.listbox = tk.Listbox(body, height=len(self.order), width=34, activestyle="none",
+                                  font=("Segoe UI", 11), exportselection=False)
+        self.listbox.grid(row=2, column=0, sticky="nsew")
+        self.listbox.bind("<Double-Button-1>", lambda e: self.toggle())
+
+        btns = ttk.Frame(body)
+        btns.grid(row=2, column=1, sticky="n", padx=(10, 0))
+        for text, cmd in (("▲ Vyššie", lambda: self.move(-1)), ("▼ Nižšie", lambda: self.move(1)),
+                          ("Zobraziť / skryť", self.toggle), ("Predvolené", self.reset)):
+            ttk.Button(btns, text=text, command=cmd, width=16).pack(fill="x", pady=2)
+
+        ttk.Label(body, text="Zoradenie riadkov:", font=("Segoe UI", 10, "bold")).grid(
+            row=3, column=0, columnspan=2, sticky="w", pady=(14, 4))
+        self.sort_keys = list(cfg.SORTS)
+        self.sort_box = ttk.Combobox(body, state="readonly", width=44,
+                                     values=[cfg.SORTS[k] for k in self.sort_keys])
+        self.sort_box.current(self.sort_keys.index(current.sort))
+        self.sort_box.grid(row=4, column=0, columnspan=2, sticky="w")
+
+        self.overview = tk.BooleanVar(value=current.lists_overview)
+        ttk.Checkbutton(body, text="Na konci pridať prehľad vychystávacích listov",
+                        variable=self.overview).grid(row=5, column=0, columnspan=2, sticky="w",
+                                                     pady=(12, 0))
+
+        bottom = ttk.Frame(body)
+        bottom.grid(row=6, column=0, columnspan=2, sticky="e", pady=(16, 0))
+        ttk.Button(bottom, text="Zrušiť", command=self.destroy).pack(side="right")
+        ttk.Button(bottom, text="Uložiť", command=self.save, style="Big.TButton").pack(
+            side="right", padx=8)
+
+        self.refresh(0)
+        # do stredu hlavného okna
+        self.update_idletasks()
+        x = parent.winfo_rootx() + (parent.winfo_width() - self.winfo_width()) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() - self.winfo_height()) // 3
+        self.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+        self.grab_set()
+        self.focus_set()
+
+    def refresh(self, select: int | None = None):
+        self.listbox.delete(0, "end")
+        for i, key in enumerate(self.order):
+            mark = "☑" if key in self.visible else "☐"
+            self.listbox.insert("end", f"  {mark}  {cfg.COLUMNS[key][1]}")
+            if key not in self.visible:
+                self.listbox.itemconfigure(i, foreground="#999")
+        if select is not None:
+            self.listbox.selection_clear(0, "end")
+            self.listbox.selection_set(select)
+            self.listbox.see(select)
+
+    def selected(self) -> int | None:
+        sel = self.listbox.curselection()
+        return sel[0] if sel else None
+
+    def move(self, step: int):
+        i = self.selected()
+        if i is None or not 0 <= i + step < len(self.order):
+            return
+        self.order[i], self.order[i + step] = self.order[i + step], self.order[i]
+        self.refresh(i + step)
+
+    def toggle(self):
+        i = self.selected()
+        if i is None:
+            return
+        key = self.order[i]
+        if key in self.visible:
+            if len(self.visible) == 1:
+                messagebox.showinfo(APP_TITLE, "Aspoň jeden stĺpec musí ostať zobrazený.", parent=self)
+                return
+            self.visible.discard(key)
+        else:
+            self.visible.add(key)
+        self.refresh(i)
+
+    def reset(self):
+        default = cfg.Settings()
+        self.order = list(default.columns)
+        self.visible = set(default.columns)
+        self.sort_box.current(self.sort_keys.index(default.sort))
+        self.overview.set(default.lists_overview)
+        self.refresh(0)
+
+    def save(self):
+        new = cfg.Settings(columns=[c for c in self.order if c in self.visible],
+                           sort=self.sort_keys[self.sort_box.current()],
+                           lists_overview=self.overview.get())
+        try:
+            cfg.save(new)
+        except OSError as e:
+            messagebox.showerror(APP_TITLE, f"Nastavenia sa nepodarilo uložiť:\n{e}", parent=self)
+            return
+        self.destroy()
+        self.on_save()
 
 
 def main(argv: list[str] | None = None) -> None:

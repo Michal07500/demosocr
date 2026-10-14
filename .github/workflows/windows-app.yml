@@ -12,6 +12,11 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      APP_VERSION: 1.0.${{ github.run_number }}
+      # Digitálny podpis sa zapne sám, keď sú v Settings -> Secrets nastavené
+      # údaje pre Azure Trusted Signing (návod v README).
+      SIGNING_ENABLED: ${{ secrets.AZURE_CLIENT_ID != '' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -20,7 +25,7 @@ jobs:
           python-version: "3.12"
 
       - name: Python balíky
-        run: pip install -r requirements.txt pyinstaller pytest
+        run: pip install -r requirements.txt pyinstaller pytest pypdf
 
       - name: Tesseract OCR (+ čeština)
         shell: pwsh
@@ -45,13 +50,40 @@ jobs:
           python -m pytest -q
           python -c "from kompletacia.ocr import check_tesseract as c; e = c(); assert e is None, e; print('OCR OK')"
 
+      - name: Údaje o verzii
+        shell: pwsh
+        run: |
+          $n = ($env:APP_VERSION -replace '\.', ', ') + ', 0'
+          (Get-Content assets\version_info.txt -Encoding utf8) -replace 'VERZIA_CISLA', $n -replace 'VERZIA', $env:APP_VERSION |
+            Set-Content version_info.txt -Encoding utf8
+
       - name: Zostavenie .exe
         run: >
           pyinstaller --noconfirm --windowed --name KompletacnyList
           --icon assets/icon.ico
+          --version-file version_info.txt
           --add-data "kompletacia/fonts;kompletacia/fonts"
           --add-data "assets;assets"
           KompletacnyList.py
+
+      - name: Digitálny podpis aplikácie
+        if: env.SIGNING_ENABLED == 'true'
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          SIGNING_ENDPOINT: ${{ secrets.SIGNING_ENDPOINT }}
+          SIGNING_ACCOUNT: ${{ secrets.SIGNING_ACCOUNT }}
+          SIGNING_PROFILE: ${{ secrets.SIGNING_PROFILE }}
+        run: |
+          Install-Module -Name TrustedSigning -Force -Scope CurrentUser -Repository PSGallery
+          foreach ($f in "dist\KompletacnyList\KompletacnyList.exe", "tesseract\tesseract.exe") {
+            Invoke-TrustedSigning -Endpoint $env:SIGNING_ENDPOINT `
+              -CodeSigningAccountName $env:SIGNING_ACCOUNT -CertificateProfileName $env:SIGNING_PROFILE `
+              -Files (Resolve-Path $f).Path -FileDigest SHA256 `
+              -TimestampRfc3161 "http://timestamp.acs.microsoft.com" -TimestampDigest SHA256
+          }
 
       - name: Balík ZIP
         shell: pwsh
@@ -69,8 +101,6 @@ jobs:
 
       - name: Inštalátor
         shell: pwsh
-        env:
-          APP_VERSION: 1.0.${{ github.run_number }}
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) {
@@ -78,6 +108,26 @@ jobs:
           }
           & $iscc installer.iss
           if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Digitálny podpis inštalátora
+        if: env.SIGNING_ENABLED == 'true'
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          SIGNING_ENDPOINT: ${{ secrets.SIGNING_ENDPOINT }}
+          SIGNING_ACCOUNT: ${{ secrets.SIGNING_ACCOUNT }}
+          SIGNING_PROFILE: ${{ secrets.SIGNING_PROFILE }}
+        run: |
+          Invoke-TrustedSigning -Endpoint $env:SIGNING_ENDPOINT `
+            -CodeSigningAccountName $env:SIGNING_ACCOUNT -CertificateProfileName $env:SIGNING_PROFILE `
+            -Files (Resolve-Path installer\KompletacnyList-Instalator.exe).Path -FileDigest SHA256 `
+            -TimestampRfc3161 "http://timestamp.acs.microsoft.com" -TimestampDigest SHA256
+
+      - name: Bez podpisu
+        if: env.SIGNING_ENABLED != 'true'
+        run: echo "::notice::Aplikácia nie je digitálne podpísaná - chýbajú údaje v Settings -> Secrets (pozri README)."
 
       - uses: actions/upload-artifact@v4
         with:

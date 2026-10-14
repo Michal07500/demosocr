@@ -9,6 +9,7 @@ from datetime import datetime
 from .aggregate import Line, drop_duplicates, merge
 from .ocr import PickList, page_count, parse_pdf_page
 from .report import build_pdf
+from .settings import Settings, load as load_settings
 
 
 @dataclass
@@ -17,6 +18,7 @@ class Result:
     lines: list[Line]
     lists: list[PickList]
     dropped: list[PickList]
+    source: str = ""
 
     @property
     def warning_count(self) -> int:
@@ -27,8 +29,26 @@ def default_output(first_input: str) -> str:
     return os.path.splitext(first_input)[0] + "_kompletacia.pdf"
 
 
+def write_pdf(output: str, lines: list[Line], lists: list[PickList], source: str,
+              settings: Settings) -> str:
+    """Zapíše PDF; ak je súbor otvorený v prehliadači (Windows ho zamkne), použije nový názov."""
+    try:
+        build_pdf(output, lines, lists, source=source, settings=settings)
+    except PermissionError:
+        stem = os.path.splitext(output)[0]
+        output = f"{stem}_{datetime.now():%H%M%S}.pdf"
+        build_pdf(output, lines, lists, source=source, settings=settings)
+    return output
+
+
+def rebuild(res: Result, settings: Settings) -> Result:
+    """Nové PDF z už prečítaných listov (napr. po zmene nastavení) - bez nového OCR."""
+    res.output = write_pdf(res.output, res.lines, res.lists, res.source, settings)
+    return res
+
+
 def run(paths: list[str], output: str | None = None, progress=None,
-        workers: int | None = None) -> Result:
+        workers: int | None = None, settings: Settings | None = None) -> Result:
     """progress(hotovo, spolu, text) sa volá po každej prečítanej strane.
 
     Strany sa čítajú v samostatných procesoch (viac naraz), takže okno aplikácie
@@ -60,11 +80,5 @@ def run(paths: list[str], output: str | None = None, progress=None,
 
     output = output or default_output(paths[0])
     source = ", ".join(os.path.basename(p) for p in paths)
-    try:
-        build_pdf(output, lines, lists, source=source)
-    except PermissionError:
-        # súbor je otvorený v prehliadači PDF (Windows ho zamkne) -> nový názov
-        stem = os.path.splitext(output)[0]
-        output = f"{stem}_{datetime.now():%H%M%S}.pdf"
-        build_pdf(output, lines, lists, source=source)
-    return Result(output, lines, lists, dropped)
+    output = write_pdf(output, lines, lists, source, settings or load_settings())
+    return Result(output, lines, lists, dropped, source)

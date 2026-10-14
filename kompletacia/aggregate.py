@@ -31,6 +31,7 @@ class Line:
     mnozstvo: float
     allocations: list[Allocation] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    order: int = 0                # poradie prvého výskytu na vychystávacích listoch
 
 
 def _best(values: list[str]) -> str:
@@ -78,7 +79,7 @@ def merge(lists: list[PickList]) -> list[Line]:
             groups.setdefault(key, []).append((pl, it))
 
     lines: list[Line] = []
-    for key, entries in groups.items():
+    for order, entries in enumerate(groups.values()):
         items = [it for _, it in entries]
         locs: list[str] = []
         km: dict[str, float] = {}
@@ -95,6 +96,7 @@ def merge(lists: list[PickList]) -> list[Line]:
             umiestnenia=locs,
             km=km,
             mnozstvo=sum(it.mnozstvo for it in items),
+            order=order,
         )
         for pl, it in entries:
             line.allocations.append(Allocation(
@@ -104,5 +106,22 @@ def merge(lists: list[PickList]) -> list[Line]:
             line.warnings += [f"str. {pl.page}: {w}" for w in it.warnings]
         lines.append(line)
 
-    lines.sort(key=lambda l: (_location_key(l.umiestnenia[0]) if l.umiestnenia else (2,), l.kod))
-    return lines
+    return sort_lines(lines, "umiestnenie")
+
+
+def _kod_key(kod: str):
+    return (0, int(kod), "") if kod.isdigit() else (1, 0, kod)
+
+
+def sort_lines(lines: list[Line], how: str) -> list[Line]:
+    """Zoradenie riadkov kompletačného listu (možnosti v settings.SORTS)."""
+    by_location = lambda l: (_location_key(l.umiestnenia[0]) if l.umiestnenia else (2,),  # noqa: E731
+                             _kod_key(l.kod))
+    keys = {
+        "umiestnenie": by_location,
+        "kod": lambda l: _kod_key(l.kod),
+        "nazov": lambda l: (l.nazov.casefold(), _kod_key(l.kod)),
+        "mnozstvo": lambda l: (-l.mnozstvo, by_location(l)),
+        "poradie": lambda l: l.order,
+    }
+    return sorted(lines, key=keys.get(how, by_location))

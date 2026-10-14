@@ -54,8 +54,50 @@ Rýchlejšie: na PDF klik pravým tlačidlom → **Odoslať na → Kompletačný
 
 PDF sa uloží vedľa skenu ako `<názov skenu>_kompletacia.pdf`.
 
+**Nastavenia (⚙ vpravo hore)**
+
+- **poradie stĺpcov** – označiť stĺpec a posúvať ho tlačidlami *▲ Vyššie / ▼ Nižšie*
+  (zhora nadol = v PDF zľava doprava),
+- **zobraziť / skryť stĺpec** – dvojklik na stĺpec,
+- **zoradenie riadkov** – podľa umiestnenia (trasa skladom), kódu, názvu, množstva
+  alebo v poradí ako na vychystávacích listoch,
+- **prehľad vychystávacích listov** na konci PDF – zapnúť / vypnúť.
+
+Nastavenia sa pamätajú (`%APPDATA%\KompletacnyList\nastavenia.json`). Ak už je kompletačný
+list vytvorený, po uložení sa hneď prekreslí – sken sa znova nečíta.
+
 Nová verzia sa zostaví automaticky po každom pushi; vydanie do *Releases* vznikne po
 pridaní tagu, napr. `git tag v1.0 && git push --tags`.
+
+## Digitálny podpis (aby antivírus a SmartScreen neblokovali inštalátor)
+
+Zostavenie na GitHube vie aplikáciu aj inštalátor podpísať automaticky cez
+**Azure Trusted Signing** (Microsoft, cca 10 $/mesiac). Kým podpis nie je nastavený,
+zostavenie prebehne bez neho.
+
+1. Na <https://portal.azure.com> založiť účet a v ňom službu **Trusted Signing**
+   (*Trusted Signing Account*), región napr. *West Europe*.
+2. Prejsť overením totožnosti (**Identity validation**) – pre jednotlivca alebo firmu,
+   podľa toho, na koho má byť podpis. Overenie trvá niekoľko dní.
+3. Vytvoriť **Certificate profile** typu *Public Trust*.
+4. V *Microsoft Entra ID → App registrations* vytvoriť aplikáciu, vygenerovať k nej
+   *Client secret* a v Trusted Signing účte jej priradiť rolu
+   **Trusted Signing Certificate Profile Signer**.
+5. V GitHube: *Settings → Secrets and variables → Actions → New repository secret*
+   a pridať:
+
+   | Secret | Hodnota |
+   |---|---|
+   | `AZURE_TENANT_ID` | Directory (tenant) ID aplikácie |
+   | `AZURE_CLIENT_ID` | Application (client) ID |
+   | `AZURE_CLIENT_SECRET` | vygenerovaný Client secret |
+   | `SIGNING_ENDPOINT` | adresa účtu, napr. `https://weu.codesigning.azure.net/` |
+   | `SIGNING_ACCOUNT` | názov Trusted Signing účtu |
+   | `SIGNING_PROFILE` | názov Certificate profile |
+
+Ďalšie zostavenie už bude podpísané (vo vlastnostiach `.exe` → *Digitálne podpisy*).
+SmartScreen si podpísanú aplikáciu „zapamätá“ až po určitom počte stiahnutí, takže
+úplne prvé inštalácie môžu ešte chvíľu zobrazovať upozornenie.
 
 ## Spustenie zo zdrojového kódu
 
