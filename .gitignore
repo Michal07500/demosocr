@@ -6,3 +6,4 @@ tesseract/
 build/
 dist/
 *.spec
+installer/

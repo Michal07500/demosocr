@@ -27,26 +27,35 @@ overiť na pôvodnom liste.
 
 ## Aplikácia pre Windows (odporúčané)
 
-Hotová aplikácia nič nepotrebuje inštalovať – OCR (Tesseract s češtinou) je pribalený.
+Nič ďalšie netreba inštalovať – OCR (Tesseract s češtinou) je pribalený.
 
-1. Na GitHube otvorte **Actions → „Windows aplikácia“** → posledný úspešný beh a stiahnite
-   artefakt **KompletacnyList-Windows** (alebo ZIP z **Releases**, ak je vydaná verzia).
-2. ZIP rozbaľte napr. do `C:\KompletacnyList` (celý priečinok, nie len .exe).
-3. Spustite **`KompletacnyList.exe`** (pre pohodlie: pravým tlačidlom → *Odoslať na → Pracovná
-   plocha (vytvoriť zástupcu)*).
+**Inštalácia**
 
-Ovládanie:
+1. Na GitHube: **Actions → „Windows aplikácia“** → posledný úspešný beh → v časti
+   *Artifacts* stiahnite **KompletacnyList-Instalator** (alebo z **Releases**).
+2. Stiahnutý ZIP rozbaľte a spustite **`KompletacnyList-Instalator.exe`**.
+3. Ak sa zobrazí „Windows ochránil váš počítač“: **Ďalšie informácie → Napriek tomu spustiť**.
+4. Kliknite *Ďalej → Inštalovať* (práva správcu nie sú potrebné). Vznikne ikona
+   **Kompletačný list** na ploche a v ponuke Štart.
 
-1. **Vybrať naskenované PDF** – jedno alebo viac PDF zo skenera.
-2. **Vytvoriť kompletačný list** – priebeh ukazuje, ktorá strana sa číta.
-3. Výsledok sa zobrazí v okne (sporné riadky žlto) a PDF sa samo otvorí;
+Odinštalovanie: *Nastavenia → Aplikácie → Kompletačný list → Odinštalovať*.
+Novšiu verziu stačí nainštalovať cez starú.
+
+**Používanie**
+
+1. Dvojklik na ikonu **Kompletačný list** na ploche.
+2. **1. Vybrať naskenované PDF** – jedno alebo viac PDF zo skenera.
+3. **2. Vytvoriť kompletačný list** – točí sa koliesko a ukazuje sa, koľko strán je prečítaných.
+4. Výsledok sa ukáže v okne (sporné riadky žlto) a PDF sa samo otvorí;
    tlačidlá **Otvoriť PDF / Vytlačiť / Otvoriť priečinok**.
 
-PDF sa uloží vedľa skenu ako `<názov skenu>_kompletacia.pdf`. PDF sa dá pretiahnuť aj
-priamo na ikonu `KompletacnyList.exe` – spracuje sa hneď.
+Rýchlejšie: na PDF klik pravým tlačidlom → **Odoslať na → Kompletačný list**
+(alebo PDF pretiahnuť na ikonu na ploche) – spracuje sa hneď.
 
-Nová verzia aplikácie sa zostaví automaticky po každom pushi; vydanie do *Releases* vznikne
-po pridaní tagu, napr. `git tag v1.0 && git push --tags`.
+PDF sa uloží vedľa skenu ako `<názov skenu>_kompletacia.pdf`.
+
+Nová verzia sa zostaví automaticky po každom pushi; vydanie do *Releases* vznikne po
+pridaní tagu, napr. `git tag v1.0 && git push --tags`.
 
 ## Spustenie zo zdrojového kódu
 
