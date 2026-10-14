@@ -111,7 +111,7 @@ def build_pdf(path: str, lines: list[Line], lists: list[PickList], source: str =
     # --- prehľad vychystávacích listov --------------------------------------
     story.append(P("Vychystávacie listy v tejto kompletácii", H2))
     story.append(Spacer(0, 2 * mm))
-    head = ["Str.", "Doklad", "Zákazka", "Zákazník", "Obj. zák.", "Expedícia", "Sk.",
+    head = ["Str.", "Doklad", "Zákazka", "Zákazník", "Obj. zák.", "Expedícia",
             "Pol.", "Ks", "Poznámka"]
     data = [[P(f"<b>{h}</b>", SMALL) for h in head]]
     style = [("GRID", (0, 0), (-1, -1), 0.5, GRID), ("BACKGROUND", (0, 0), (-1, 0), HEAD_BG),
@@ -125,11 +125,11 @@ def build_pdf(path: str, lines: list[Line], lists: list[PickList], source: str =
             P(str(pl.page), SMALL), P(escape(pl.doklad), SMALL),
             P(f"<b>{escape(pl.zakazka)}</b>", SMALL),
             P(escape(pl.zakaznik), SMALL), P(escape(pl.obj_zak), SMALL), P(escape(pl.expedicia), SMALL),
-            P(escape(pl.skupina), SMALL), P(str(len(pl.items)), SMALL),
+            P(str(len(pl.items)), SMALL),
             P(fmt(sum(it.mnozstvo for it in pl.items)), SMALL),
             P("<br/>".join(escape(n) for n in notes), WARN),
         ])
-    widths = [10 * mm, 38 * mm, 24 * mm, 60 * mm, 30 * mm, 22 * mm, 10 * mm, 11 * mm, 14 * mm, 58 * mm]
+    widths = [10 * mm, 38 * mm, 24 * mm, 65 * mm, 30 * mm, 22 * mm, 11 * mm, 14 * mm, 63 * mm]
     t = Table(data, colWidths=widths, repeatRows=1)
     t.setStyle(TableStyle(style))
     story.append(t)

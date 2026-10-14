@@ -6,6 +6,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 import traceback
 from tkinter import filedialog, messagebox, ttk
@@ -68,9 +69,23 @@ class App(ttk.Frame):
         # --- priebeh
         self.progress = ttk.Progressbar(self, mode="determinate")
         self.progress.grid(row=1, column=0, sticky="ew", pady=(12, 4))
+        status = ttk.Frame(self)
+        status.grid(row=2, column=0, sticky="ew")
+        status.columnconfigure(1, weight=1)
+        # točiace sa koliesko - ukazuje, že program pracuje
+        bg = ttk.Style().lookup("TFrame", "background") or "#f0f0f0"
+        self.spinner = tk.Canvas(status, width=26, height=26, highlightthickness=0, bg=bg)
+        self.spinner.grid(row=0, column=0, padx=(0, 6))
+        self.spinner_arc = self.spinner.create_arc(3, 3, 23, 23, start=0, extent=0,
+                                                   style="arc", width=4, outline="#2563eb")
+        self.spinner_angle = 0
         self.status_var = tk.StringVar(value="Vyberte PDF so skenom vychystávacích listov "
                                              "(môže ich byť aj viac naraz).")
-        ttk.Label(self, textvariable=self.status_var).grid(row=2, column=0, sticky="w")
+        ttk.Label(status, textvariable=self.status_var).grid(row=0, column=1, sticky="w")
+        self.time_var = tk.StringVar()
+        ttk.Label(status, textvariable=self.time_var, foreground="#555").grid(row=0, column=2,
+                                                                             sticky="e")
+        self.started_at = 0.0
 
         # --- výsledok
         table = ttk.Frame(self)
@@ -131,22 +146,38 @@ class App(ttk.Frame):
     def start(self):
         if self.busy or not self.files:
             return
-        err = check_tesseract()
-        if err:
-            messagebox.showerror(APP_TITLE, err)
-            return
         self.busy = True
         self.result = None
         for b in (self.pick_btn, self.run_btn, self.open_btn, self.print_btn, self.folder_btn):
             b.configure(state="disabled")
         self.tree.delete(*self.tree.get_children())
         self.out_var.set("")
-        self.progress.configure(value=0, maximum=1)
-        self.status_var.set("Načítavam PDF …")
+        # kým sa nedočíta prvá strana, beží "neurčitý" pruh
+        self.progress.configure(mode="indeterminate", value=0)
+        self.progress.start(15)
+        self.status_var.set("Spúšťam čítanie skenov …")
+        self.root.configure(cursor="watch")
+        self.started_at = time.monotonic()
+        self.animate()
         threading.Thread(target=self.work, args=(list(self.files),), daemon=True).start()
+
+    def animate(self):
+        """Otáča koliesko a ukazuje uplynulý čas, kým program pracuje."""
+        if not self.busy:
+            self.spinner.itemconfigure(self.spinner_arc, extent=0)
+            self.root.configure(cursor="")
+            return
+        self.spinner_angle = (self.spinner_angle - 12) % 360
+        self.spinner.itemconfigure(self.spinner_arc, start=self.spinner_angle, extent=270)
+        self.time_var.set(f"{int(time.monotonic() - self.started_at)} s")
+        self.after(40, self.animate)
 
     def work(self, files: list[str]):
         try:
+            err = check_tesseract()
+            if err:
+                self.events.put(("error", err))
+                return
             res = run(files, default_output(files[0]),
                       progress=lambda i, n, text: self.events.put(("progress", i, n, text)))
             self.events.put(("done", res))
@@ -160,12 +191,18 @@ class App(ttk.Frame):
                 ev = self.events.get_nowait()
                 if ev[0] == "progress":
                     _, i, n, text = ev
-                    self.progress.configure(maximum=max(n, 1), value=i)
+                    if i > 0 and str(self.progress["mode"]) == "indeterminate":
+                        self.progress.stop()
+                        self.progress.configure(mode="determinate")
+                    if str(self.progress["mode"]) == "determinate":
+                        self.progress.configure(maximum=max(n, 1), value=i)
                     self.status_var.set(text)
                 elif ev[0] == "done":
                     self.finish(ev[1])
                 elif ev[0] == "error":
                     self.busy = False
+                    self.progress.stop()
+                    self.progress.configure(mode="determinate", value=0)
                     self.pick_btn.configure(state="normal")
                     self.run_btn.configure(state="normal")
                     self.status_var.set("Chyba pri spracovaní.")
@@ -177,9 +214,11 @@ class App(ttk.Frame):
     def finish(self, res: Result):
         self.busy = False
         self.result = res
+        self.progress.stop()
+        self.progress.configure(mode="determinate", maximum=1, value=1)
+        self.time_var.set(f"{int(time.monotonic() - self.started_at)} s")
         for b in (self.pick_btn, self.run_btn, self.open_btn, self.print_btn, self.folder_btn):
             b.configure(state="normal")
-        self.progress.configure(value=self.progress["maximum"])
 
         for l in res.lines:
             km = " / ".join(fmt(l.km[u]) for u in l.umiestnenia if u in l.km)

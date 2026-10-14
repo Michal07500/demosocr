@@ -19,6 +19,36 @@ import pypdfium2 as pdfium
 import pytesseract
 from pytesseract import Output
 
+# Na Windows by každé spustenie tesseractu (aj kontrola verzie, ktorú pytesseract robí
+# sám) otvorilo na chvíľu okno konzoly. Všetkým jeho volaniam preto pridáme
+# CREATE_NO_WINDOW.
+if sys.platform == "win32":
+    import subprocess as _subprocess
+
+    class _NoWindowSubprocess:
+        def __getattr__(self, name):
+            return getattr(_subprocess, name)
+
+        @staticmethod
+        def _hidden(kwargs):
+            kwargs["creationflags"] = kwargs.get("creationflags", 0) | _subprocess.CREATE_NO_WINDOW
+            return kwargs
+
+        def Popen(self, *args, **kwargs):  # noqa: N802 - rovnaké meno ako v subprocess
+            return _subprocess.Popen(*args, **self._hidden(kwargs))
+
+        def run(self, *args, **kwargs):
+            return _subprocess.run(*args, **self._hidden(kwargs))
+
+        def check_output(self, *args, **kwargs):
+            return _subprocess.check_output(*args, **self._hidden(kwargs))
+
+    pytesseract.pytesseract.subprocess = _NoWindowSubprocess()
+
+# Strany sa čítajú vo viacerých procesoch naraz; tesseract by si inak v každom z nich
+# zobral všetky jadrá (OpenMP) a navzájom by sa extrémne spomaľovali.
+os.environ.setdefault("OMP_THREAD_LIMIT", "1")
+
 LANG = "ces"
 RENDER_DPI = 200
 
@@ -558,6 +588,17 @@ def parse_page(gray: np.ndarray, page_no: int) -> PickList:
             for it in pl.items:
                 it.warnings = [w for w in it.warnings if w != WEIGHT_MISMATCH]
     return pl
+
+
+def page_count(path: str) -> int:
+    return len(pdfium.PdfDocument(path))
+
+
+def parse_pdf_page(path: str, index: int, page_no: int) -> PickList:
+    """Prečíta jednu stranu PDF (beží v samostatnom procese, preto sám otvára súbor)."""
+    pdf = pdfium.PdfDocument(path)
+    gray = np.array(pdf[index].render(scale=RENDER_DPI / 72).to_pil().convert("L"))
+    return parse_page(gray, page_no)
 
 
 def parse_pdf(path: str, progress=None) -> list[PickList]:
