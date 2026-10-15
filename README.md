@@ -52,6 +52,10 @@ Novšiu verziu stačí nainštalovať cez starú.
 Rýchlejšie: na PDF klik pravým tlačidlom → **Odoslať na → Kompletačný list**
 (alebo PDF pretiahnuť na ikonu na ploche) – spracuje sa hneď.
 
+Chybne prečítanú položku opravíte **dvojklikom na jej riadok** v okne – otvorí sa
+oprava kódu, názvu, umiestnenia, množstva a KM. Po uložení sa PDF hneď aktualizuje
+(sken sa znova nečíta).
+
 PDF sa uloží vedľa skenu ako `<názov skenu>_kompletacia.pdf`.
 
 **Nastavenia (⚙ vpravo hore)**
@@ -62,8 +66,9 @@ PDF sa uloží vedľa skenu ako `<názov skenu>_kompletacia.pdf`.
 - **zoradenie riadkov** – podľa umiestnenia (trasa skladom), kódu, názvu, množstva
   alebo v poradí ako na vychystávacích listoch,
 - **formát strany** – na šírku (viac stĺpcov vedľa seba) alebo na výšku,
-- **presnejšie čítanie pri slabších skenoch** – tú istú bunku prečíta viackrát a
-  výsledok odhlasuje; je presnejšie, ale pomalšie (prejaví sa pri ďalšom spracovaní skenu),
+- **viac času na rozoznanie** – tú istú bunku prečíta viac ráz a výsledok odhlasuje;
+  je presnejšie, ale pomalšie. Predvolene zapnuté; dá sa vypnúť kvôli rýchlosti
+  (prejaví sa pri ďalšom spracovaní skenu),
 - **prehľad vychystávacích listov** na konci PDF – zapnúť / vypnúť.
 
 Nastavenia sa pamätajú (`%APPDATA%\KompletacnyList\nastavenia.json`). Ak už je kompletačný

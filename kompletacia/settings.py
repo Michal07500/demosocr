@@ -41,7 +41,7 @@ class Settings:
     sort: str = "umiestnenie"
     lists_overview: bool = True   # tabuľka vychystávacích listov na konci
     orientation: str = "landscape"  # formát strany PDF
-    thorough: bool = False        # presnejšie čítanie (pomalšie) pri slabších skenoch
+    thorough: bool = True         # viac času na rozoznanie (presnejšie, pomalšie)
 
     def normalized(self) -> "Settings":
         cols = [c for c in dict.fromkeys(self.columns) if c in COLUMNS] or list(DEFAULT_COLUMNS)
@@ -69,7 +69,7 @@ def load(path: str | None = None) -> Settings:
                         sort=str(data.get("sort", "umiestnenie")),
                         lists_overview=bool(data.get("lists_overview", True)),
                         orientation=str(data.get("orientation", "landscape")),
-                        thorough=bool(data.get("thorough", False))).normalized()
+                        thorough=bool(data.get("thorough", True))).normalized()
     except (OSError, ValueError, TypeError, AttributeError):
         return Settings()
 

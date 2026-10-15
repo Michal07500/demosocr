@@ -228,10 +228,12 @@ def ocr_number(img: np.ndarray, decimals: int, suffix: str = "") -> float | None
     return parse_number(ocr(img, whitelist="0123456789,." + suffix, lang="eng"), decimals)
 
 
-# Pri slabšom skene sa tá istá bunka prečíta viackrát s rôznou prípravou a
-# výsledky sa „odhlasujú“. Viac pokusov = viac času, ale vyššia presnosť.
-VARIANTS_FAST = [(2.5, 150)]
-VARIANTS_THOROUGH = [(2.5, 150), (3.3, 135), (2.0, 170), (3.0, 150), (2.5, 125)]
+# Pri slabšom skene sa tá istá bunka prečíta viackrát s rôznou prípravou
+# (zväčšenie a prah) a výsledky sa „odhlasujú“. Viac pokusov = viac času na
+# rozoznanie, ale vyššia presnosť. Predvolene beží podrobný režim.
+VARIANTS_FAST = [(2.5, 150), (3.2, 135), (2.0, 170)]
+VARIANTS_THOROUGH = [(2.5, 150), (3.3, 135), (2.0, 170), (3.0, 150), (2.5, 125),
+                     (3.6, 140), (2.8, 160), (2.2, 130)]
 
 
 def _vote(values: list, prefer=None):

@@ -106,10 +106,14 @@ class App(ttk.Frame):
             self.tree.column(c, width=width, anchor=anchor, stretch=c in ("nazov", "rozpis"))
         self.tree.tag_configure("warn", background="#fff3cd")
         self.tree.tag_configure("total", font=("Segoe UI", 10, "bold"))
+        self.tree.bind("<Double-1>", self.edit_row)
+        self.row_line: dict[str, object] = {}  # iid -> Line
         scroll = ttk.Scrollbar(table, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll.set)
         self.tree.grid(row=0, column=0, sticky="nsew")
         scroll.grid(row=0, column=1, sticky="ns")
+        ttk.Label(table, text="Dvojklik na riadok = opraviť chybne prečítanú položku.",
+                  foreground="#555").grid(row=1, column=0, sticky="w", pady=(4, 0))
 
         # --- 3. akcie s hotovým PDF
         bottom = ttk.Frame(self)
@@ -242,6 +246,7 @@ class App(ttk.Frame):
     def show_lines(self):
         """Náhľad v okne - rovnaké poradie riadkov ako v PDF."""
         self.tree.delete(*self.tree.get_children())
+        self.row_line = {}
         if not self.result:
             return
         lines = sort_lines(self.result.lines, cfg.load().sort)
@@ -249,11 +254,35 @@ class App(ttk.Frame):
             km = " / ".join(fmt(l.km[u]) for u in l.umiestnenia if u in l.km)
             rozpis = ", ".join(f"{fmt(a.mnozstvo)} ks {a.zakazka or a.doklad}" for a in l.allocations)
             name = ("⚠ " if l.warnings else "") + l.nazov
-            self.tree.insert("", "end", tags=("warn",) if l.warnings else (), values=(
+            iid = self.tree.insert("", "end", tags=("warn",) if l.warnings else (), values=(
                 ", ".join(l.umiestnenia), l.kod, name, f"{fmt(l.mnozstvo)} ks", km, rozpis))
+            self.row_line[iid] = l
         total = sum(l.mnozstvo for l in lines)
         self.tree.insert("", "end", tags=("total",),
                          values=("", "", "SPOLU", f"{fmt(total)} ks", "", ""))
+
+    def edit_row(self, event):
+        """Dvojklik na riadok -> okno na opravu chybne prečítanej položky."""
+        if self.busy:
+            return
+        iid = self.tree.identify_row(event.y)
+        line = self.row_line.get(iid)
+        if line is None:
+            return
+        EditDialog(self.root, line, on_save=self.row_edited)
+
+    def row_edited(self):
+        if not self.result:
+            return
+        try:
+            rebuild(self.result, cfg.load())
+        except OSError as e:
+            messagebox.showerror(APP_TITLE, f"PDF sa nepodarilo uložiť:\n{e}")
+            return
+        self.show_lines()
+        self.out_var.set(self.result.output)
+        self.status_var.set("Položka bola opravená a kompletačný list aktualizovaný.")
+        self.open_output("open")
 
     def open_settings(self):
         if self.busy:
@@ -283,6 +312,90 @@ class App(ttk.Frame):
     def open_folder(self):
         if self.result:
             open_file(os.path.dirname(os.path.abspath(self.result.output)))
+
+
+def _parse_qty(text: str) -> float | None:
+    text = text.strip().replace(" ", "").replace(",", ".")
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+class EditDialog(tk.Toplevel):
+    """Ručná oprava chybne prečítanej položky (kód, názov, umiestnenie, množstvo, KM)."""
+
+    def __init__(self, parent: tk.Tk, line, on_save):
+        super().__init__(parent)
+        self.line = line
+        self.on_save = on_save
+        self.title("Oprava položky")
+        self.transient(parent)
+        self.resizable(False, False)
+
+        body = ttk.Frame(self, padding=14)
+        body.grid(sticky="nsew")
+        ttk.Label(body, text="Opravte hodnoty prečítané zo skenu:",
+                  font=("Segoe UI", 10, "bold")).grid(row=0, column=0, columnspan=2,
+                                                       sticky="w", pady=(0, 10))
+        self.vars: dict[str, tk.StringVar] = {}
+        rows = [
+            ("kod", "Kód", line.kod),
+            ("nazov", "Názov", line.nazov),
+            ("umiestnenia", "Umiestnenie", ", ".join(line.umiestnenia)),
+            ("mnozstvo", "Množstvo (ks)", fmt(line.mnozstvo)),
+            ("km", "KM", fmt(line.km.get(line.umiestnenia[0]) if line.umiestnenia else None)),
+        ]
+        for i, (key, label, value) in enumerate(rows, 1):
+            ttk.Label(body, text=label).grid(row=i, column=0, sticky="w", padx=(0, 10), pady=3)
+            var = tk.StringVar(value=value)
+            width = 48 if key == "nazov" else 24
+            ttk.Entry(body, textvariable=var, width=width, font=("Segoe UI", 11)).grid(
+                row=i, column=1, sticky="w", pady=3)
+            self.vars[key] = var
+        if len(line.umiestnenia) > 1:
+            ttk.Label(body, text="Pri viacerých umiestneniach ich oddeľte čiarkou.",
+                      foreground="#555").grid(row=len(rows) + 1, column=0, columnspan=2, sticky="w")
+
+        bottom = ttk.Frame(body)
+        bottom.grid(row=len(rows) + 2, column=0, columnspan=2, sticky="e", pady=(16, 0))
+        ttk.Button(bottom, text="Zrušiť", command=self.destroy).pack(side="right")
+        ttk.Button(bottom, text="Uložiť opravu", command=self.save,
+                   style="Big.TButton").pack(side="right", padx=8)
+
+        self.update_idletasks()
+        x = parent.winfo_rootx() + (parent.winfo_width() - self.winfo_width()) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() - self.winfo_height()) // 3
+        self.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+        self.grab_set()
+        self.focus_set()
+
+    def save(self):
+        line = self.line
+        qty = _parse_qty(self.vars["mnozstvo"].get())
+        if qty is None or qty < 0:
+            messagebox.showerror(APP_TITLE, "Množstvo musí byť číslo.", parent=self)
+            return
+        locs = [u.strip().upper() for u in self.vars["umiestnenia"].get().split(",") if u.strip()]
+        km_val = _parse_qty(self.vars["km"].get())
+
+        line.kod = self.vars["kod"].get().strip()
+        line.nazov = self.vars["nazov"].get().strip()
+        line.umiestnenia = locs or line.umiestnenia
+        line.mnozstvo = qty
+        # KM naviažeme na prvé umiestnenie
+        if locs:
+            line.km = dict(line.km)
+            if km_val is not None:
+                line.km[locs[0]] = km_val
+        # ak má položka jediný pôvodný list, zosúladíme aj jeho množstvo a miesto
+        if len(line.allocations) == 1:
+            line.allocations[0].mnozstvo = qty
+            if locs:
+                line.allocations[0].umiestnenie = locs[0]
+        line.warnings = []  # ručne opravené -> už nie je sporné
+        self.destroy()
+        self.on_save()
 
 
 class SettingsDialog(tk.Toplevel):
@@ -337,9 +450,9 @@ class SettingsDialog(tk.Toplevel):
                         variable=self.overview).grid(row=7, column=0, columnspan=2, sticky="w",
                                                      pady=(12, 0))
         self.thorough = tk.BooleanVar(value=current.thorough)
-        ttk.Checkbutton(body, text="Presnejšie čítanie pri slabších skenoch (pomalšie)",
+        ttk.Checkbutton(body, text="Viac času na rozoznanie – presnejšie čítanie (pomalšie)",
                         variable=self.thorough).grid(row=8, column=0, columnspan=2, sticky="w")
-        ttk.Label(body, text="Presnejšie čítanie sa prejaví až pri ďalšom spracovaní skenu.",
+        ttk.Label(body, text="Táto voľba sa prejaví až pri ďalšom spracovaní skenu.",
                   foreground="#555").grid(row=9, column=0, columnspan=2, sticky="w")
 
         bottom = ttk.Frame(body)
