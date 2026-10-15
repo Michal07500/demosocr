@@ -62,10 +62,11 @@ def run(paths: list[str], output: str | None = None, progress=None,
     if progress:
         progress(0, total, f"Čítam {total} strán …")
 
+    settings = (settings or load_settings()).normalized()
     workers = workers or max(1, min(4, (os.cpu_count() or 2) - 1, total))
     results: dict[int, PickList] = {}
     with ProcessPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(parse_pdf_page, *p) for p in pages]
+        futures = [pool.submit(parse_pdf_page, *p, thorough=settings.thorough) for p in pages]
         for done, fut in enumerate(as_completed(futures), 1):
             pl = fut.result()
             results[pl.page] = pl
@@ -80,5 +81,5 @@ def run(paths: list[str], output: str | None = None, progress=None,
 
     output = output or default_output(paths[0])
     source = ", ".join(os.path.basename(p) for p in paths)
-    output = write_pdf(output, lines, lists, source, settings or load_settings())
+    output = write_pdf(output, lines, lists, source, settings)
     return Result(output, lines, lists, dropped, source)

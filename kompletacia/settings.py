@@ -32,16 +32,22 @@ SORTS: dict[str, str] = {
 }
 
 
+ORIENTATIONS = {"landscape": "na šírku", "portrait": "na výšku"}
+
+
 @dataclass
 class Settings:
     columns: list[str] = field(default_factory=lambda: list(DEFAULT_COLUMNS))  # viditeľné, v poradí
     sort: str = "umiestnenie"
-    lists_overview: bool = True  # tabuľka vychystávacích listov na konci
+    lists_overview: bool = True   # tabuľka vychystávacích listov na konci
+    orientation: str = "landscape"  # formát strany PDF
+    thorough: bool = False        # presnejšie čítanie (pomalšie) pri slabších skenoch
 
     def normalized(self) -> "Settings":
         cols = [c for c in dict.fromkeys(self.columns) if c in COLUMNS] or list(DEFAULT_COLUMNS)
         sort = self.sort if self.sort in SORTS else "umiestnenie"
-        return Settings(cols, sort, bool(self.lists_overview))
+        orient = self.orientation if self.orientation in ORIENTATIONS else "landscape"
+        return Settings(cols, sort, bool(self.lists_overview), orient, bool(self.thorough))
 
 
 def config_path() -> str:
@@ -61,7 +67,9 @@ def load(path: str | None = None) -> Settings:
             data = json.load(f)
         return Settings(columns=list(data.get("columns", DEFAULT_COLUMNS)),
                         sort=str(data.get("sort", "umiestnenie")),
-                        lists_overview=bool(data.get("lists_overview", True))).normalized()
+                        lists_overview=bool(data.get("lists_overview", True)),
+                        orientation=str(data.get("orientation", "landscape")),
+                        thorough=bool(data.get("thorough", False))).normalized()
     except (OSError, ValueError, TypeError, AttributeError):
         return Settings()
 

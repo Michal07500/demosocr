@@ -11,6 +11,7 @@ import re
 import shutil
 import sys
 import unicodedata
+from collections import Counter
 from dataclasses import dataclass, field
 
 import cv2
@@ -227,6 +228,47 @@ def ocr_number(img: np.ndarray, decimals: int, suffix: str = "") -> float | None
     return parse_number(ocr(img, whitelist="0123456789,." + suffix, lang="eng"), decimals)
 
 
+# Pri slabšom skene sa tá istá bunka prečíta viackrát s rôznou prípravou a
+# výsledky sa „odhlasujú“. Viac pokusov = viac času, ale vyššia presnosť.
+VARIANTS_FAST = [(2.5, 150)]
+VARIANTS_THOROUGH = [(2.5, 150), (3.3, 135), (2.0, 170), (3.0, 150), (2.5, 125)]
+
+
+def _vote(values: list, prefer=None):
+    """Najčastejšia hodnota; pri zhode uprednostní tú, ktorá spĺňa `prefer`."""
+    good = [v for v in values if v not in (None, "")]
+    if not good:
+        return None
+    counts = Counter(good)
+    best = max(counts, key=lambda v: (counts[v], 1 if (prefer and prefer(v)) else 0))
+    return best
+
+
+def read_voted(crop_at, kind: str, variants, decimals: int = 0, suffix: str = ""):
+    """Prečíta bunku vo viacerých variantoch prípravy a vráti odhlasovaný výsledok.
+
+    crop_at(scale, threshold) -> pripravený obrázok bunky.
+    kind: 'kod' | 'location' | 'number' | 'text' | 'manip'.
+    """
+    raw = []
+    for scale, threshold in variants:
+        img = crop_at(scale, threshold)
+        if kind == "number":
+            raw.append(parse_number(ocr(img, whitelist="0123456789,." + suffix, lang="eng"), decimals))
+        elif kind == "kod":
+            raw.append(re.sub(r"\D", "", ocr(img, whitelist="0123456789", lang="eng")))
+        elif kind == "location":
+            raw.append(fix_location(ocr(
+                img, whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-", lang="eng")))
+        elif kind == "manip":
+            raw.append(cleanup_manip(ocr(img)))
+        else:  # text (názov)
+            raw.append(cleanup_name(" ".join(ocr(img, psm=6).split())))
+    prefer = {"kod": lambda v: bool(re.fullmatch(r"\d{4,7}", v)),
+              "location": lambda v: bool(LOCATION_RE.match(v))}.get(kind)
+    return _vote(raw, prefer), raw
+
+
 # --------------------------------------------------------------------------
 # Rozloženie strany
 
@@ -412,8 +454,10 @@ def parse_header(gray: np.ndarray, kod_y: int, words: list[dict]) -> dict:
 # Tabuľka
 
 
-def parse_items(gray: np.ndarray, words: list[dict], kod: dict) -> tuple[list[Item], list[str]]:
+def parse_items(gray: np.ndarray, words: list[dict], kod: dict,
+                thorough: bool = False) -> tuple[list[Item], list[str]]:
     h, w = gray.shape
+    variants = VARIANTS_THOROUGH if thorough else VARIANTS_FAST
     warnings: list[str] = []
     bounds = column_bounds(gray, kod)
     top = header_bottom(gray, kod, bounds)
@@ -455,23 +499,31 @@ def parse_items(gray: np.ndarray, words: list[dict], kod: dict) -> tuple[list[It
         y0 = max(0, g[0][0] - 4) + top
         y1 = (groups[gi + 1][0][0] - 2 if gi + 1 < len(groups) else g[-1][1] + 12) + top
 
-        def cell(ci):
+        def crop(ci, single=True):
             x0, x1 = cols(ci)
-            return prep_cell(work[y0:y1, x0:x1], strip_lines=True, single_line=ci != 1,
-                             threshold=130 if ci == 1 else 150)
+            return lambda scale, threshold: prep_cell(
+                work[y0:y1, x0:x1], scale=scale, strip_lines=True, single_line=single,
+                threshold=threshold)
 
-        kod_txt = ocr(cell(0), whitelist="0123456789", lang="eng")
-        nazov = " ".join(ocr(cell(1), psm=6).split())
-        manip = ocr(cell(2))
-        umiest = fix_location(ocr(cell(3), whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-", lang="eng"))
-        hm_mj = ocr_number(cell(6), 1)
-        hm_pol = ocr_number(cell(7), 1, "kg")
-        mnoz = ocr_number(cell(8), 3, "ksm")
-        km = ocr_number(cell(9), 1)
+        kod_val, _ = read_voted(crop(0), "kod", variants)
+        nazov = read_voted(crop(1, single=False), "text", variants)[0] or ""
+        manip = read_voted(crop(2), "manip", variants)[0] or ""
+        umiest = read_voted(crop(3), "location", variants)[0] or ""
+        hm_mj = read_voted(crop(6), "number", variants, decimals=1)[0]
+        hm_pol = read_voted(crop(7), "number", variants, decimals=1, suffix="kg")[0]
+        mnoz_val, mnoz_raw = read_voted(crop(8), "number", variants, decimals=3, suffix="ksm")
+        # množstvo podľa hmotnosti: ak niektorý pokus sedí s Hmotnost/pol ÷ Hmotnost/mj,
+        # uprednostníme ho (hmotnosti sa čítajú spoľahlivejšie než zvýraznené množstvo)
+        if hm_mj and hm_pol and hm_mj > 0:
+            target = round(hm_pol / hm_mj)
+            if target > 0 and abs(target * hm_mj - hm_pol) <= max(0.6, 0.02 * hm_pol):
+                if any(c == target for c in mnoz_raw):
+                    mnoz_val = float(target)
+        km = read_voted(crop(9), "number", variants, decimals=1)[0]
 
-        it = Item(kod=re.sub(r"\D", "", kod_txt), nazov=cleanup_name(nazov),
-                  manipulacia=cleanup_manip(manip), umiestnenie=umiest,
-                  mnozstvo=mnoz or 0.0, km=km, hm_mj=hm_mj, hm_pol=hm_pol)
+        it = Item(kod=kod_val or "", nazov=nazov,
+                  manipulacia=manip, umiestnenie=umiest,
+                  mnozstvo=mnoz_val or 0.0, km=km, hm_mj=hm_mj, hm_pol=hm_pol)
         if not it.kod and not it.mnozstvo and not umiest:
             continue  # zvyšky čiar / šumu pod tabuľkou, nie položka
         validate_item(it)
@@ -566,7 +618,7 @@ def find_table_anchor(words: list[dict], width: int) -> dict | None:
             "w": int(36 * scale), "h": int(17 * scale)}
 
 
-def parse_page(gray: np.ndarray, page_no: int) -> PickList:
+def parse_page(gray: np.ndarray, page_no: int, thorough: bool = False) -> PickList:
     pl = PickList(page=page_no)
     gray = deskew(gray)
     words = find_words(clean(gray))
@@ -576,7 +628,7 @@ def parse_page(gray: np.ndarray, page_no: int) -> PickList:
         return pl
     for k, v in parse_header(gray, kod["y"], words).items():
         setattr(pl, k, v)
-    pl.items, warns = parse_items(gray, words, kod)
+    pl.items, warns = parse_items(gray, words, kod, thorough=thorough)
     pl.warnings += warns
     if pl.mnozstvo_plosne is not None:
         total = sum(i.mnozstvo for i in pl.items)
@@ -594,11 +646,12 @@ def page_count(path: str) -> int:
     return len(pdfium.PdfDocument(path))
 
 
-def parse_pdf_page(path: str, index: int, page_no: int) -> PickList:
+def parse_pdf_page(path: str, index: int, page_no: int, dpi: int = RENDER_DPI,
+                   thorough: bool = False) -> PickList:
     """Prečíta jednu stranu PDF (beží v samostatnom procese, preto sám otvára súbor)."""
     pdf = pdfium.PdfDocument(path)
-    gray = np.array(pdf[index].render(scale=RENDER_DPI / 72).to_pil().convert("L"))
-    return parse_page(gray, page_no)
+    gray = np.array(pdf[index].render(scale=dpi / 72).to_pil().convert("L"))
+    return parse_page(gray, page_no, thorough=thorough)
 
 
 def parse_pdf(path: str, progress=None) -> list[PickList]:

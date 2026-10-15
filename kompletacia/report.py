@@ -58,7 +58,6 @@ def _allocation_text(line: Line) -> str:
 
 
 BOX = ParagraphStyle("box", parent=BASE, fontSize=14, leading=16)
-PAGE_WIDTH = landscape(A4)[0] - 20 * mm
 
 
 def _cell(key: str, l: Line) -> Paragraph:
@@ -89,7 +88,9 @@ def build_pdf(path: str, lines: list[Line], lists: list[PickList], source: str =
     settings = (settings or Settings()).normalized()
     lines = sort_lines(lines, settings.sort)
     cols = settings.columns
-    doc = SimpleDocTemplate(path, pagesize=landscape(A4), leftMargin=10 * mm,
+    pagesize = landscape(A4) if settings.orientation == "landscape" else A4
+    page_width = pagesize[0] - 20 * mm  # obsah medzi okrajmi (2× 10 mm)
+    doc = SimpleDocTemplate(path, pagesize=pagesize, leftMargin=10 * mm,
                             rightMargin=10 * mm, topMargin=10 * mm, bottomMargin=12 * mm,
                             title="Kompletačný list")
     story = []
@@ -132,7 +133,7 @@ def build_pdf(path: str, lines: list[Line], lists: list[PickList], source: str =
     data.append(total_row)
     style.append(("BACKGROUND", (0, len(data) - 1), (-1, len(data) - 1), HEAD_BG))
     base = [COLUMNS[c][2] * mm for c in cols]
-    widths = [w * PAGE_WIDTH / sum(base) for w in base]  # roztiahnuť na celú šírku strany
+    widths = [w * page_width / sum(base) for w in base]  # roztiahnuť na celú šírku strany
     t = Table(data, colWidths=widths, repeatRows=1)
     t.setStyle(TableStyle(style))
     story += [t, Spacer(0, 5 * mm)]
@@ -159,16 +160,17 @@ def build_pdf(path: str, lines: list[Line], lists: list[PickList], source: str =
                 P(fmt(sum(it.mnozstvo for it in pl.items)), SMALL),
                 P("<br/>".join(escape(n) for n in notes), WARN),
             ])
-        widths = [10 * mm, 38 * mm, 24 * mm, 65 * mm, 30 * mm, 22 * mm, 11 * mm, 14 * mm, 63 * mm]
+        base = [10, 38, 24, 65, 30, 22, 11, 14, 63]
+        widths = [x * mm * page_width / (sum(base) * mm) for x in base]
         t = Table(data, colWidths=widths, repeatRows=1)
         t.setStyle(TableStyle(style))
         story.append(t)
 
-    def footer(canvas, doc_):
+    def footer(canvas, doc_, _w=pagesize[0]):
         canvas.saveState()
         canvas.setFont("Sans", 7)
         canvas.drawString(10 * mm, 6 * mm, f"Kompletačný list · {now}")
-        canvas.drawRightString(landscape(A4)[0] - 10 * mm, 6 * mm, f"Strana {doc_.page}")
+        canvas.drawRightString(_w - 10 * mm, 6 * mm, f"Strana {doc_.page}")
         canvas.restoreState()
 
     doc.build(story, onFirstPage=footer, onLaterPages=footer)

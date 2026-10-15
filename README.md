@@ -61,6 +61,9 @@ PDF sa uloží vedľa skenu ako `<názov skenu>_kompletacia.pdf`.
 - **zobraziť / skryť stĺpec** – dvojklik na stĺpec,
 - **zoradenie riadkov** – podľa umiestnenia (trasa skladom), kódu, názvu, množstva
   alebo v poradí ako na vychystávacích listoch,
+- **formát strany** – na šírku (viac stĺpcov vedľa seba) alebo na výšku,
+- **presnejšie čítanie pri slabších skenoch** – tú istú bunku prečíta viackrát a
+  výsledok odhlasuje; je presnejšie, ale pomalšie (prejaví sa pri ďalšom spracovaní skenu),
 - **prehľad vychystávacích listov** na konci PDF – zapnúť / vypnúť.
 
 Nastavenia sa pamätajú (`%APPDATA%\KompletacnyList\nastavenia.json`). Ak už je kompletačný

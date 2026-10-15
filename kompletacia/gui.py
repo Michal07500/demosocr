@@ -286,7 +286,7 @@ class App(ttk.Frame):
 
 
 class SettingsDialog(tk.Toplevel):
-    """Poradie a výber stĺpcov, zoradenie riadkov, prehľad listov."""
+    """Poradie a výber stĺpcov, zoradenie, formát strany, presnosť, prehľad listov."""
 
     def __init__(self, parent: tk.Tk, on_save):
         super().__init__(parent)
@@ -324,13 +324,26 @@ class SettingsDialog(tk.Toplevel):
         self.sort_box.current(self.sort_keys.index(current.sort))
         self.sort_box.grid(row=4, column=0, columnspan=2, sticky="w")
 
+        ttk.Label(body, text="Formát strany:", font=("Segoe UI", 10, "bold")).grid(
+            row=5, column=0, columnspan=2, sticky="w", pady=(14, 4))
+        self.orient_keys = list(cfg.ORIENTATIONS)
+        self.orient_box = ttk.Combobox(body, state="readonly", width=44,
+                                       values=[cfg.ORIENTATIONS[k] for k in self.orient_keys])
+        self.orient_box.current(self.orient_keys.index(current.orientation))
+        self.orient_box.grid(row=6, column=0, columnspan=2, sticky="w")
+
         self.overview = tk.BooleanVar(value=current.lists_overview)
         ttk.Checkbutton(body, text="Na konci pridať prehľad vychystávacích listov",
-                        variable=self.overview).grid(row=5, column=0, columnspan=2, sticky="w",
+                        variable=self.overview).grid(row=7, column=0, columnspan=2, sticky="w",
                                                      pady=(12, 0))
+        self.thorough = tk.BooleanVar(value=current.thorough)
+        ttk.Checkbutton(body, text="Presnejšie čítanie pri slabších skenoch (pomalšie)",
+                        variable=self.thorough).grid(row=8, column=0, columnspan=2, sticky="w")
+        ttk.Label(body, text="Presnejšie čítanie sa prejaví až pri ďalšom spracovaní skenu.",
+                  foreground="#555").grid(row=9, column=0, columnspan=2, sticky="w")
 
         bottom = ttk.Frame(body)
-        bottom.grid(row=6, column=0, columnspan=2, sticky="e", pady=(16, 0))
+        bottom.grid(row=10, column=0, columnspan=2, sticky="e", pady=(16, 0))
         ttk.Button(bottom, text="Zrušiť", command=self.destroy).pack(side="right")
         ttk.Button(bottom, text="Uložiť", command=self.save, style="Big.TButton").pack(
             side="right", padx=8)
@@ -386,13 +399,17 @@ class SettingsDialog(tk.Toplevel):
         self.order = list(default.columns)
         self.visible = set(default.columns)
         self.sort_box.current(self.sort_keys.index(default.sort))
+        self.orient_box.current(self.orient_keys.index(default.orientation))
         self.overview.set(default.lists_overview)
+        self.thorough.set(default.thorough)
         self.refresh(0)
 
     def save(self):
         new = cfg.Settings(columns=[c for c in self.order if c in self.visible],
                            sort=self.sort_keys[self.sort_box.current()],
-                           lists_overview=self.overview.get())
+                           lists_overview=self.overview.get(),
+                           orientation=self.orient_keys[self.orient_box.current()],
+                           thorough=self.thorough.get())
         try:
             cfg.save(new)
         except OSError as e:

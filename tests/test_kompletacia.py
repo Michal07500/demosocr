@@ -130,3 +130,24 @@ def test_pdf_with_custom_columns(tmp_path):
     assert "skontroluj" in text               # upozornenie ostane viditeľné
     assert "Vychystávacie listy" not in text  # vypnutý prehľad
     assert text.index("Vychystať") < text.index("Umiestnenie") < text.index("Kód")
+
+
+def test_settings_orientation_thorough(tmp_path):
+    from kompletacia import settings as cfg
+    path = str(tmp_path / "n.json")
+    cfg.save(cfg.Settings(orientation="portrait", thorough=True), path)
+    loaded = cfg.load(path)
+    assert loaded.orientation == "portrait" and loaded.thorough is True
+    # neplatná orientácia -> predvolená
+    assert cfg.Settings(orientation="bokom").normalized().orientation == "landscape"
+
+
+def test_pdf_portrait(tmp_path):
+    from pypdf import PdfReader
+    from kompletacia.report import build_pdf
+    from kompletacia.settings import Settings
+    lines = merge([_pl(1, "VL1-1", "100", [Item("307960", "DTDL U216", "", "C14-0-02", 3, 51)])])
+    out = str(tmp_path / "p.pdf")
+    build_pdf(out, lines, [], settings=Settings(orientation="portrait"))
+    box = PdfReader(out).pages[0].mediabox
+    assert box.height > box.width  # A4 na výšku
